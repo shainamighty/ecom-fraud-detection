@@ -1,44 +1,41 @@
-# E-Commerce Fraud Detection with Cost-Sensitive Threshold Optimization
+    # E-Commerce Fraud Detection with Cost-Sensitive Threshold Optimization
 
 ## Overview
 
-This project detects fraudulent e-commerce transactions under class imbalance,
-using the [Fraudulent E-Commerce Transactions dataset](https://www.kaggle.com/datasets/shriyashjagtap/fraudulent-e-commerce-transactions)
-(1.47M transactions, ~5% fraud rate).
+An end-to-end fraud detection system for e-commerce transactions, built on the
+[Fraudulent E-Commerce Transactions dataset](https://www.kaggle.com/datasets/shriyashjagtap/fraudulent-e-commerce-transactions)
+(1.47M transactions, ~5% fraud rate). The project covers EDA-driven feature
+engineering, multi-model comparison, and — the core focus — choosing a
+decision threshold based on actual rupee cost instead of a generic metric
+like F1.
 
-It shares its core framing with [Loshanya/fraud-detection](https://github.com/Loshanya/fraud-detection)
-(imbalanced binary fraud classification, multi-model comparison, PR-AUC as the
-primary metric, threshold tuning instead of trusting 0.5) but differs in
-**domain, feature set, and what the threshold is optimized for**.
+Most fraud detection writeups stop at "we got 97% F1" and pick threshold=0.5
+without asking what a false positive or false negative actually costs a
+business. This project treats that as the central question: given a cost
+matrix (cost of missing a fraud vs. cost of wrongly flagging a genuine
+order), what threshold actually minimizes total cost — and does tuning it
+even matter?
 
-## What's different from the reference project
+## EDA — what actually predicts fraud here
 
-| | Reference (Loshanya) | This project |
-|---|---|---|
-| Domain | Bank transfers (PaySim-style) | E-commerce transactions |
-| Fraud rate | 0.129% (extreme) | ~5% (still imbalanced, less extreme) |
-| Key features | Balance-delta (`orig_error`, `dest_balance_change`) | Account age, transaction hour, amount — plus engineered interactions |
-| Threshold chosen by | Recall constraint (>95% recall) | **Expected rupee cost** (cost of missed fraud vs. cost of false flag) |
-| Best PR-AUC | 0.996 (near-perfect — balance features make fraud almost trivially separable) | 0.38 (much harder — weak, noisy signal, closer to real-world fraud detection) |
-
-## EDA findings (on the real data, not assumed)
-
-Before engineering features, I checked which raw columns actually carried
-fraud signal:
+Before building any features, I checked which raw columns carried real
+signal rather than assuming:
 
 - **No signal**: Payment Method, Device Used, Product Category, Quantity,
-  Customer Age, shipping/billing address mismatch — all within ~0.5 points
-  of the 5% base fraud rate. IP addresses are also essentially unique per
-  transaction (no reuse to exploit).
+  Customer Age, shipping/billing address mismatch — all sat within ~0.5
+  points of the 5% base fraud rate regardless of value. IP addresses were
+  also essentially unique per transaction, so there's no reuse pattern to
+  exploit.
 - **Real signal**:
-  - **Transaction Amount** — fraud averages ₹548 vs ₹210 for legit (corr 0.27)
-  - **Account Age Days** — fraud skews toward much newer accounts (median 61
-    days vs 183 for legit)
+  - **Transaction Amount** — fraud averages ₹548 vs ₹210 for legitimate
+    transactions (correlation 0.27)
+  - **Account Age Days** — fraud skews toward much newer accounts (median
+    61 days vs 183 for legit)
   - **Transaction Hour** — 55% of fraud happens 12am–5am vs only 25% of
     legitimate transactions
 
-This directly shaped the feature set — no point one-hot-encoding four
-categorical columns that carry zero information.
+This directly shaped which features made it into the model — no point
+one-hot-encoding four categorical columns that carry zero information.
 
 ## Engineered features
 
@@ -58,7 +55,7 @@ categorical columns that carry zero information.
 | Logistic Regression | 0.255 | 0.790 | 0.121 | 0.715 | 0.206 | 2s |
 
 XGBoost wins on PR-AUC while training ~15x faster than Random Forest for
-essentially the same score — a clear practical choice.
+essentially the same score — the clear practical choice.
 
 ## Feature importance (XGBoost)
 
@@ -78,9 +75,9 @@ rather than just duplicating an existing column.
 
 ## Cost-sensitive threshold optimization
 
-Instead of picking a threshold by F1 or a recall floor, this project defines
-an explicit cost matrix and picks the threshold that **minimizes expected
-rupee cost** on the test set:
+Rather than picking a threshold by F1 or a fixed recall floor, this project
+defines an explicit cost matrix and picks the threshold that **minimizes
+expected rupee cost** on the test set:
 
 - `cost_fn` (missing a real fraud) = ~2x the average fraud transaction
   amount (₹1,095.64), approximating the loss plus chargeback/penalty overhead
@@ -92,20 +89,19 @@ giving a **1.2% reduction in expected cost** on the test set (₹94,057 saved
 of ₹7.84M naive cost) — 76% fraud recall at 12.6% precision.
 
 The honest takeaway: on this dataset, the fraud/non-fraud probability
-distributions aren't well-separated enough for threshold placement to matter
-much — the model itself (not the threshold) is the bottleneck. This is a
-useful negative result and a natural bridge to future work below, rather
-than an oversold "we saved millions" claim.
+distributions aren't well-separated enough for threshold placement alone to
+move the needle much — the model itself (not the cutoff) is the bottleneck.
+That's a useful finding in its own right, and a natural bridge to the future
+work below, rather than an oversold "we saved millions" claim.
 
 ## Future work
 
-- Try gradient-boosted feature interactions beyond the two engineered here
-  (e.g. amount-per-account-age-day rate)
+- Try additional feature interactions beyond the two engineered here (e.g.
+  amount-per-account-age-day rate)
 - SHAP-based explainability for individual flagged transactions
 - Since the threshold barely moved cost, the more promising direction is
-  better features (e.g. sequential/behavioral signals if the dataset
-  supported repeat customers — this dataset has near-unique customer/IP
-  values, limiting velocity-style features)
+  better features — e.g. sequential/behavioral velocity signals, though this
+  dataset's near-unique customer/IP values limit that here
 - Calibration check (Platt/isotonic) before treating raw XGBoost scores as
   cost-weighted probabilities
 
@@ -119,3 +115,5 @@ than an oversold "we saved millions" claim.
 ## Tech stack
 
 Python, Pandas, NumPy, Scikit-learn, XGBoost
+
+    
